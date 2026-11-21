@@ -1,18 +1,17 @@
 // A faster drop-in for csv-reader 1.0.0 (make.fun's own reference program).
 //
-// Same answers, same errors, same order, on every input. v2 proved the
-// semantics with a char-code state machine split into nested helper
-// closures; v3 keeps the same reading but removes the overhead around it:
-//
-// - Everything lives in one flat function. No per-field function calls and
-//   no captured-variable traffic: pos, line and the field result are plain
-//   locals the JIT keeps in registers.
-// - A quoted field is read in ONE pass. v2 scanned each quoted segment
-//   twice (once hunting the closing quote, once more hunting line breaks
-//   to normalise); here the segment scan watches for the quote and the
-//   breaks together, and only a segment that truly holds a break pays
-//   for building its normalised text.
-// - The unquoted scan is unrolled two characters per step.
+// Same answers, same errors, same order, on every input. v4 keeps v3's
+// reading and its flat single-function shape; the one change is inside
+// the quoted-field segment scan. v3 unrolled that scan four characters
+// per step; measured back-to-back on the practice set, a plain
+// one-character loop is faster there (the unrolled body's repeated
+// bounds checks and break traffic cost more than the checks they save),
+// so v4 scans segments with the simple loop. The unquoted scan keeps
+// v3's unrolled form, which measured level with the simple loop there.
+// Directions measured and rejected on the way: locating delimiters with
+// String#indexOf (native-call overhead per field exceeds the scan it
+// replaces) and gating the delimiter test on charCode <= 44 (the extra
+// comparison costs more than it saves).
 //
 // The reading itself is unchanged: a U+FEFF at the very start is dropped;
 // records end at LF or CRLF and a line with no characters is no record; a
@@ -101,19 +100,7 @@ export function run(input) {
             // at a line break (which is normalised and scanning resumes).
             let c = -1;
             while (i < n) {
-              let cx = text.charCodeAt(i);
-              if (cx === 34 || cx === 10 || cx === 13) { c = cx; break; }
-              i += 1;
-              if (i >= n) break;
-              cx = text.charCodeAt(i);
-              if (cx === 34 || cx === 10 || cx === 13) { c = cx; break; }
-              i += 1;
-              if (i >= n) break;
-              cx = text.charCodeAt(i);
-              if (cx === 34 || cx === 10 || cx === 13) { c = cx; break; }
-              i += 1;
-              if (i >= n) break;
-              cx = text.charCodeAt(i);
+              const cx = text.charCodeAt(i);
               if (cx === 34 || cx === 10 || cx === 13) { c = cx; break; }
               i += 1;
             }
